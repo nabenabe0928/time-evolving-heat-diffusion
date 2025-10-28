@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 
 import numpy as np
@@ -19,25 +21,26 @@ def get_psi(W, H, dx, dy, fx_bound, fy_bound):
 
 
 def get_surface_potential(W, H, dx, dy, d, mu0):
-    sur_pot = np.zeros((W * H, W * H))
+    xs = np.tile(np.arange(W), H) * dx
+    ys = np.tile(np.arange(H)[:, np.newaxis], (1, W)).ravel() * dy
     coef = mu0 * d * dx * dy / 4.0 / np.pi
-
-    for i1 in range(W):
-        for j1 in range(H):
-            alpha1 = j1 * W + i1
-            r1 = np.array([i1 * dx, j1 * dy, 0])
-
-            for i2 in range(W):
-                for j2 in range(H):
-                    alpha2 = j2 * W + i2
-                    r2 = np.array([i2 * dx, j2 * dy, d / 2.0])
-
-                    sur_pot[alpha1][alpha2] = coef / (np.linalg.norm(r1 - r2) ** 3)
-
+    sur_pot = coef / np.sqrt((xs - xs[:, np.newaxis])**2 + (ys - ys[:, np.newaxis])**2 + (d / 2.0)**2) ** 3
     return sur_pot
 
 
-def get_delta(W, H, dx, dy):
+def build_delta_operator(W: int, H: int, dx: float, dy: float) -> np.ndarray:
+    """
+    Build Laplacian (finite difference) operator on W*H nodes.
+
+    Args:
+        W: Number of nodes in x direction.
+        H: Number of nodes in y direction.
+        dx: Grid spacing in x direction.
+        dy: Grid spacing in y direction.
+    
+    Returns:
+        delta: (W*H, W*H) Laplacian operator matrix.
+    """
     delta = -2.0 * (1 / dx**2 + 1 / dy**2) * np.eye(W*H)
     inds = np.arange(W*H)
     delta[inds[1:], inds[1:] - 1] = 1.0 / dx**2
@@ -49,22 +52,29 @@ def get_delta(W, H, dx, dy):
     return delta
 
 
-def get_nablax(W, H, dx):
-    nablax = np.zeros((W * H, W * H))
-    inds = np.arange(W*H)
-    nablax[inds[1:], inds[1:] - 1] = -0.5 / dx
-    nablax[inds[:-1], inds[:-1] + 1] = 0.5 / dx
-    nablax[inds[W::W], inds[W::W] - 1] = 0.0
-    nablax[inds[W - 1:-1:W], inds[W - 1:-1:W] + 1] = 0.0
-    return nablax
+def build_gradient_operators(W: int, H: int, dx: float, dy: float) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Build discrete gradient operators on W*H nodes.
 
-
-def get_nablay(W, H, dy):
-    nablay = np.zeros((W * H, W * H))
+    Args:
+        W: Number of nodes in x direction.
+        H: Number of nodes in y direction.
+        dx: Grid spacing in x direction.
+        dy: Grid spacing in y direction.
+    
+    Returns:
+        (nabla_x, nabla_y): (W*H, W*H) gradient operator matrices.
+    """
+    nabla_x = np.zeros((W * H, W * H))
+    nabla_y = np.zeros((W * H, W * H))
     inds = np.arange(W*H)
-    nablay[inds[:-W], inds[:-W] + W] = 0.5 / dy
-    nablay[inds[W:], inds[W:] - W] = -0.5 / dy
-    return nablay
+    nabla_x[inds[1:], inds[1:] - 1] = -0.5 / dx
+    nabla_x[inds[:-1], inds[:-1] + 1] = 0.5 / dx
+    nabla_x[inds[W::W], inds[W::W] - 1] = 0.0
+    nabla_x[inds[W - 1:-1:W], inds[W - 1:-1:W] + 1] = 0.0
+    nabla_y[inds[:-W], inds[:-W] + W] = 0.5 / dy
+    nabla_y[inds[W:], inds[W:] - W] = -0.5 / dy
+    return nabla_x, nabla_y
 
 
 def main(matB1, matB2, matT1, vecT2, nablax, nablay, itr, f, W, H, dt, coef2, element):
@@ -73,12 +83,15 @@ def main(matB1, matB2, matT1, vecT2, nablax, nablay, itr, f, W, H, dt, coef2, el
     T = np.zeros(W * H)
     Ts = []
 
+    print(matB1.shape, matB2.shape, matT1.shape, vecT2.shape, cur_pot.shape, nablax.shape)
     for t in range(itr):
         B = coef3 * np.sin(coef3 * t * dt)
-        cur_pot = matB1 @ (matB2 @ cur_pot - np.full(W * H, B))
-        J2 = np.linalg.norm(nablay @ cur_pot) ** 2 + np.linalg.norm(-nablax @ cur_pot) ** 2
+        cur_pot = matB1 @ (matB2 @ cur_pot - B)
+        pot_dy = nablay @ cur_pot
+        pot_dx = -nablax @ cur_pot
+        J2 = pot_dx @ pot_dx + pot_dy @ pot_dy
         T = matT1 @ (T + vecT2 + coef2 * J2)
-        Ts.append(T[:])
+        Ts.append(T.copy())
         print(t)
 
     write_csv(Ts, "thermal_dist_{}".format(element))
@@ -122,14 +135,12 @@ if __name__ == "__main__":
 
     sur_pot = get_surface_potential(W, H, dx, dy, d, mu0)
     psi = get_psi(W, H, dx, dy, fx_bound, fy_bound)
-    delta = get_delta(W, H, dx, dy)
+    delta = build_delta_operator(W, H, dx, dy)
     I = np.identity(W * H)
-    nablax = get_nablax(W, H, dx)
-    nablay = get_nablay(W, H, dy)
-
+    nabla_x, nabla_y = build_gradient_operators(W, H, dx, dy)
     matB1 = np.linalg.inv((mu0 * I - sur_pot) / dt - eta * delta)
     matB2 = (mu0 * I - sur_pot) / dt
     matT1 = np.linalg.inv(I - coef1 * delta)
     vecT2 = -coef1 * psi
 
-    main(matB1, matB2, matT1, vecT2, nablax, nablay, itr, f, W, H, dt, coef2, element)
+    main(matB1, matB2, matT1, vecT2, nabla_x, nabla_y, itr, f, W, H, dt, coef2, element)
