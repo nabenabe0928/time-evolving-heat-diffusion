@@ -11,21 +11,27 @@ import matplotlib.animation as animation
 os.makedirs("results", exist_ok=True)
 
 
-def get_psi(W, H, dx, dy, fx_bound, fy_bound):
-    psi = np.zeros(W * H, dtype=float)
-    psi[::H] -= fx_bound[0] / dx**2
-    psi[H - 1 :: H] -= fx_bound[1] / dx**2
-    psi[:W] -= fy_bound[0] / dy**2
-    psi[-W:] -= fy_bound[1] / dy**2
-    return psi
+def get_boundary_flux(
+    W: int, H: int, dx: float, dy: float, flux_x_bound: np.ndarray, flux_y_bound: np.ndarray
+) -> np.ndarray:
+    """Compute boundary flux source vector (Neumann boundary term)."""
+    boundary_flux = np.zeros(W * H, dtype=float)
+    boundary_flux[::H] -= flux_x_bound[0] / dx**2
+    boundary_flux[H - 1 :: H] -= flux_x_bound[1] / dx**2
+    boundary_flux[:W] -= flux_y_bound[0] / dy**2
+    boundary_flux[-W:] -= flux_y_bound[1] / dy**2
+    return boundary_flux
 
 
 def get_surface_potential(W, H, dx, dy, d, mu0):
+    """
+    Compute the dense surface potential matrix. It returns a (W*H, W*H) dense array.
+    """
     xs = np.tile(np.arange(W), H) * dx
     ys = np.tile(np.arange(H)[:, np.newaxis], (1, W)).ravel() * dy
     coef = mu0 * d * dx * dy / 4.0 / np.pi
-    sur_pot = coef / np.sqrt((xs - xs[:, np.newaxis])**2 + (ys - ys[:, np.newaxis])**2 + (d / 2.0)**2) ** 3
-    return sur_pot
+    surface_potential = coef / np.sqrt((xs - xs[:, np.newaxis])**2 + (ys - ys[:, np.newaxis])**2 + (d / 2.0)**2) ** 3
+    return surface_potential
 
 
 def build_delta_operator(W: int, H: int, dx: float, dy: float) -> np.ndarray:
@@ -128,19 +134,19 @@ if __name__ == "__main__":
     coef2 = eta * dt / thrm_cap
     x, y = np.meshgrid(np.linspace(0, X, W + 2), np.linspace(0, Y, H + 2))
 
-    fx_bound = np.full((2, W), 0)
-    fy_bound = np.full((2, H), 0)
+    flux_x_bound = np.full((2, W), 0)
+    flux_y_bound = np.full((2, H), 0)
     dx = float(X / (W + 1))
     dy = float(Y / (H + 1))
 
-    sur_pot = get_surface_potential(W, H, dx, dy, d, mu0)
-    psi = get_psi(W, H, dx, dy, fx_bound, fy_bound)
+    surface_potential = get_surface_potential(W, H, dx, dy, d, mu0)
+    boundary_flux = get_boundary_flux(W, H, dx, dy, flux_x_bound, flux_y_bound)
     delta = build_delta_operator(W, H, dx, dy)
     I = np.identity(W * H)
     nabla_x, nabla_y = build_gradient_operators(W, H, dx, dy)
-    matB1 = np.linalg.inv((mu0 * I - sur_pot) / dt - eta * delta)
-    matB2 = (mu0 * I - sur_pot) / dt
+    matB1 = np.linalg.inv((mu0 * I - surface_potential) / dt - eta * delta)
+    matB2 = (mu0 * I - surface_potential) / dt
     matT1 = np.linalg.inv(I - coef1 * delta)
-    vecT2 = -coef1 * psi
+    vecT2 = -coef1 * boundary_flux
 
     main(matB1, matB2, matT1, vecT2, nabla_x, nabla_y, itr, f, W, H, dt, coef2, element)
