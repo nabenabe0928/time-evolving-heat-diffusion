@@ -1,35 +1,23 @@
+import os
+
 import numpy as np
-from numba import jit, f8, i8, b1, void, u1
 import csv
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 
 
-@jit(f8[:, :](i8, i8, f8, f8, f8[:, :], f8[:, :]))
+os.makedirs("results", exist_ok=True)
+
+
 def get_psi(W, H, dx, dy, fx_bound, fy_bound):
-    psi = np.zeros(W * H)
-    dx_inv2 = 1.0 / (dx**2)
-    dy_inv2 = 1.0 / (dy**2)
-    c = -2.0 * dx_inv2 - 2.0 * dy_inv2
-
-    for x in range(W):
-        for y in range(H):
-            alpha = y * W + x
-            psi[alpha] = 0
-
-            if x == 0:
-                psi[alpha] -= dx_inv2 * fx_bound[0][y]
-            elif x == W - 1:
-                psi[alpha] -= dx_inv2 * fx_bound[1][y]
-            if y == 0:
-                psi[alpha] -= dy_inv2 * fy_bound[0][x]
-            elif y == H - 1:
-                psi[alpha] -= dy_inv2 * fy_bound[1][x]
-
+    psi = np.zeros(W * H, dtype=float)
+    psi[::H] -= fx_bound[0] / dx**2
+    psi[H - 1 :: H] -= fx_bound[1] / dx**2
+    psi[:W] -= fy_bound[0] / dy**2
+    psi[-W:] -= fy_bound[1] / dy**2
     return psi
 
 
-@jit(f8[:, :](i8, i8, f8, f8, f8, f8))
 def get_surface_potential(W, H, dx, dy, d, mu0):
     sur_pot = np.zeros((W * H, W * H))
     coef = mu0 * d * dx * dy / 4.0 / np.pi
@@ -49,77 +37,36 @@ def get_surface_potential(W, H, dx, dy, d, mu0):
     return sur_pot
 
 
-@jit(f8[:, :](i8, i8, f8, f8))
 def get_delta(W, H, dx, dy):
-    delta = np.zeros((W * H, W * H))
-    dx_inv2 = 1.0 / (dx**2)
-    dy_inv2 = 1.0 / (dy**2)
-    c = -2.0 * dx_inv2 - 2.0 * dy_inv2
-
-    for i in range(W):
-        for j in range(H):
-            alpha = j * W + i
-            delta[alpha][alpha] = c
-
-            if 0 < i < W - 1:
-                delta[alpha][alpha - 1] = dx_inv2
-                delta[alpha][alpha + 1] = dx_inv2
-            elif i == 0:
-                delta[alpha][alpha + 1] = dx_inv2
-            elif i == W - 1:
-                delta[alpha][alpha - 1] = dx_inv2
-            if 0 < j < H - 1:
-                delta[alpha][alpha - W] = dy_inv2
-                delta[alpha][alpha + W] = dy_inv2
-            elif j == 0:
-                delta[alpha][alpha + W] = dy_inv2
-            elif j == H - 1:
-                delta[alpha][alpha - W] = dy_inv2
-
+    delta = -2.0 * (1 / dx**2 + 1 / dy**2) * np.eye(W*H)
+    inds = np.arange(W*H)
+    delta[inds[1:], inds[1:] - 1] = 1.0 / dx**2
+    delta[inds[:-1], inds[:-1] + 1] = 1.0 / dx**2
+    delta[inds[W::W], inds[W::W] - 1] = 0.0
+    delta[inds[W - 1:-1:W], inds[W - 1:-1:W] + 1] = 0.0
+    delta[inds[:-W], inds[:-W] + W] = 1.0 / dy**2
+    delta[inds[W:], inds[W:] - W] = 1.0 / dy**2
     return delta
 
 
-@jit(f8[:, :](i8, i8, f8))
 def get_nablax(W, H, dx):
-    dx_inv = 1.0 / dx / 2.0
     nablax = np.zeros((W * H, W * H))
-
-    for i in range(W):
-        for j in range(H):
-            alpha = j * W + i
-
-            if 0 < i < W - 1:
-                nablax[alpha][alpha - 1] = -dx_inv
-                nablax[alpha][alpha + 1] = dx_inv
-            elif i == 0:
-                nablax[alpha][alpha + 1] = dx_inv
-            elif i == W - 1:
-                nablax[alpha][alpha - 1] = -dx_inv
-
+    inds = np.arange(W*H)
+    nablax[inds[1:], inds[1:] - 1] = -0.5 / dx
+    nablax[inds[:-1], inds[:-1] + 1] = 0.5 / dx
+    nablax[inds[W::W], inds[W::W] - 1] = 0.0
+    nablax[inds[W - 1:-1:W], inds[W - 1:-1:W] + 1] = 0.0
     return nablax
 
 
-@jit(f8[:, :](i8, i8, f8))
 def get_nablay(W, H, dy):
-    dy_inv = 1.0 / dy / 2.0
     nablay = np.zeros((W * H, W * H))
-
-    for i in range(W):
-        for j in range(H):
-            alpha = j * W + i
-
-            if 0 < j < H - 1:
-                nablay[alpha][alpha - W] = -dy_inv
-                nablay[alpha][alpha + W] = dy_inv
-            elif j == 0:
-                nablay[alpha][alpha + W] = dy_inv
-            elif j == H - 1:
-                nablay[alpha][alpha - W] = -dy_inv
-
+    inds = np.arange(W*H)
+    nablay[inds[:-W], inds[:-W] + W] = 0.5 / dy
+    nablay[inds[W:], inds[W:] - W] = -0.5 / dy
     return nablay
 
 
-@jit(void(f8[:, :], f8[:, :], f8[:, :], f8[:], f8[:, :], f8[:, :], i8, f8, i8, i8, f8, f8, u1))
 def main(matB1, matB2, matT1, vecT2, nablax, nablay, itr, f, W, H, dt, coef2, element):
     coef3 = 2 * np.pi * f
     cur_pot = np.zeros(W * H)
@@ -138,7 +85,7 @@ def main(matB1, matB2, matT1, vecT2, nablax, nablay, itr, f, W, H, dt, coef2, el
 
 
 def write_csv(M, name):
-    with open("data/" + name + ".csv", "w", newline="") as f:
+    with open("results/" + name + ".csv", "w", newline="") as f:
         writer = csv.writer(f, delimiter=",", quotechar='"')
 
         for array in M:
@@ -148,9 +95,9 @@ def write_csv(M, name):
 if __name__ == "__main__":
     element = ["Au", "Hg", "Cu", "Fe"][0]
     f = 1.0
-    itr = 50
-    W = 50
-    H = 50
+    itr = 20
+    W = 5
+    H = 5
     X = 0.1
     Y = 0.1
     d = 0.01
