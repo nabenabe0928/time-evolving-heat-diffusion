@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+import json
 import os
 
 import numpy as np
-import csv
-import matplotlib.pyplot as plt
-import matplotlib.animation as animation
+from tqdm import tqdm
 
 
 os.makedirs("results", exist_ok=True)
+MU0 = 4.0 * np.pi * 1.0e-7
+ETA = 2.0e-8
 
 
 def get_boundary_flux(
@@ -23,14 +24,14 @@ def get_boundary_flux(
     return boundary_flux
 
 
-def get_surface_potential(W, H, dx, dy, d, mu0):
+def get_surface_potential(W: int, H: int, dx: float, dy: float, plate_height: float) -> np.ndarray:
     """
     Compute the dense surface potential matrix. It returns a (W*H, W*H) dense array.
     """
     xs = np.tile(np.arange(W), H) * dx
     ys = np.tile(np.arange(H)[:, np.newaxis], (1, W)).ravel() * dy
-    coef = mu0 * d * dx * dy / 4.0 / np.pi
-    surface_potential = coef / np.sqrt((xs - xs[:, np.newaxis])**2 + (ys - ys[:, np.newaxis])**2 + (d / 2.0)**2) ** 3
+    coef = MU0 * plate_height * dx * dy / 4.0 / np.pi
+    surface_potential = coef / np.sqrt((xs - xs[:, None])**2 + (ys - ys[:, None])**2 + (plate_height / 2.0)**2) ** 3
     return surface_potential
 
 
@@ -71,8 +72,8 @@ def build_gradient_operators(W: int, H: int, dx: float, dy: float) -> tuple[np.n
     Returns:
         (nabla_x, nabla_y): (W*H, W*H) gradient operator matrices.
     """
-    nabla_x = np.zeros((W * H, W * H))
-    nabla_y = np.zeros((W * H, W * H))
+    nabla_x = np.zeros((W * H, W * H), dtype=float)
+    nabla_y = np.zeros((W * H, W * H), dtype=float)
     inds = np.arange(W*H)
     nabla_x[inds[1:], inds[1:] - 1] = -0.5 / dx
     nabla_x[inds[:-1], inds[:-1] + 1] = 0.5 / dx
@@ -83,70 +84,65 @@ def build_gradient_operators(W: int, H: int, dx: float, dy: float) -> tuple[np.n
     return nabla_x, nabla_y
 
 
-def main(matB1, matB2, matT1, vecT2, nablax, nablay, itr, f, W, H, dt, coef2, element):
-    coef3 = 2 * np.pi * f
-    cur_pot = np.zeros(W * H)
-    T = np.zeros(W * H)
-    Ts = []
+def main(
+    potential_step: np.ndarray,
+    potential_mass: np.ndarray,
+    temp_step: np.ndarray,
+    temp_boundary_source: np.ndarray,
+    nabla_x: np.ndarray,
+    nabla_y: np.ndarray,
+    n_steps: int,
+    freq: float,
+    dt: float,
+    coef2: float,
+    element: str,
+) -> None:
+    omega = 2 * np.pi * freq
+    potential = np.zeros(nabla_x.shape[0], dtype=float)
+    temps = np.zeros((n_steps, nabla_x.shape[0]), dtype=float)
 
-    print(matB1.shape, matB2.shape, matT1.shape, vecT2.shape, cur_pot.shape, nablax.shape)
-    for t in range(itr):
-        B = coef3 * np.sin(coef3 * t * dt)
-        cur_pot = matB1 @ (matB2 @ cur_pot - B)
-        pot_dy = nablay @ cur_pot
-        pot_dx = -nablax @ cur_pot
-        J2 = pot_dx @ pot_dx + pot_dy @ pot_dy
-        T = matT1 @ (T + vecT2 + coef2 * J2)
-        Ts.append(T.copy())
-        print(t)
+    for t in tqdm(range(n_steps)):
+        potential = potential_step @ (potential_mass @ potential - omega * np.sin(omega * t * dt))
+        pot_dy = nabla_y @ potential
+        pot_dx = -nabla_x @ potential
+        joule_head_squared = pot_dx @ pot_dx + pot_dy @ pot_dy
+        temps[t] = temp_step @ (temps[max(0, t - 1)] + temp_boundary_source + coef2 * joule_head_squared)
 
-    write_csv(Ts, "thermal_dist_{}".format(element))
-
-
-def write_csv(M, name):
-    with open("results/" + name + ".csv", "w", newline="") as f:
-        writer = csv.writer(f, delimiter=",", quotechar='"')
-
-        for array in M:
-            writer.writerow(array)
+    with open(f"results/temperature_{element}.json", "w") as f:
+        json.dump(temps.tolist(), f)
 
 
 if __name__ == "__main__":
     element = ["Au", "Hg", "Cu", "Fe"][0]
-    f = 1.0
-    itr = 20
+    freq = 1.0
+    n_steps = 20
     W = 5
     H = 5
     X = 0.1
     Y = 0.1
-    d = 0.01
-    eta = 2.0 * 1.0e-8
-    mu0 = 4.0 * np.pi * 1.0e-7
+    plate_height = 0.01
     dt = 0.1
-    lmd = {"Au": 316.0, "Hg": 8.6, "Cu": 399, "Fe": 77}[element]
-    thrm_cap = {
-        "Au": 129.0 * 19320.0,
-        "Hg": 139.0 * 13546.0,
-        "Cu": 385.0 * 8960.0,
-        "Fe": 444.0 * 7874.0,
+    thermal_conductivity = {"Au": 316.0, "Hg": 8.6, "Cu": 399, "Fe": 77}[element]
+    thermal_capacity = {
+        "Au": 129.0 * 19320.0, "Hg": 139.0 * 13546.0, "Cu": 385.0 * 8960.0, "Fe": 444.0 * 7874.0
     }[element]
-    coef1 = lmd * dt / thrm_cap
-    coef2 = eta * dt / thrm_cap
-    x, y = np.meshgrid(np.linspace(0, X, W + 2), np.linspace(0, Y, H + 2))
+    coef1 = thermal_conductivity * dt / thermal_capacity
+    coef2 = ETA * dt / thermal_capacity
 
     flux_x_bound = np.full((2, W), 0)
     flux_y_bound = np.full((2, H), 0)
     dx = float(X / (W + 1))
     dy = float(Y / (H + 1))
 
-    surface_potential = get_surface_potential(W, H, dx, dy, d, mu0)
+    surface_potential = get_surface_potential(W, H, dx, dy, plate_height)
     boundary_flux = get_boundary_flux(W, H, dx, dy, flux_x_bound, flux_y_bound)
     delta = build_delta_operator(W, H, dx, dy)
     I = np.identity(W * H)
     nabla_x, nabla_y = build_gradient_operators(W, H, dx, dy)
-    matB1 = np.linalg.inv((mu0 * I - surface_potential) / dt - eta * delta)
-    matB2 = (mu0 * I - surface_potential) / dt
-    matT1 = np.linalg.inv(I - coef1 * delta)
-    vecT2 = -coef1 * boundary_flux
+    potential_step = np.linalg.inv((MU0 * I - surface_potential) / dt - ETA * delta)
+    potential_mass = (MU0 * I - surface_potential) / dt
+    temp_step = np.linalg.inv(I - coef1 * delta)
+    temp_boundary_source = -coef1 * boundary_flux
 
-    main(matB1, matB2, matT1, vecT2, nabla_x, nabla_y, itr, f, W, H, dt, coef2, element)
+    main(potential_step, potential_mass, temp_step, temp_boundary_source, nabla_x, nabla_y, n_steps, freq, dt, coef2, element)
+
