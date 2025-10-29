@@ -1,7 +1,7 @@
 # Thermal Heat Diffusion Simulator Using Implicit Euler
 
 <p align="middle">
-    <img src="/results/dist.gif" width="96%" />
+    <img src="./dist.gif" width="96%" />
 </p>
 
 A Python simulation framework for modeling **2D heat diffusion** in metallic materials under the influence of **electromagnetic induction** and **Joule heating** effects.
