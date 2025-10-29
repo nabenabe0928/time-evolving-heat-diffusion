@@ -37,7 +37,7 @@ class HeatDiffusionSimulator:
         self._dy = float(Y / (ny + 1))
         self._dt = dt
         self._nabla_x, self._nabla_y = self._build_gradient_operators()
-        self._joule_heat_coef = dt / thermal_capacity / ETA
+        self._joule_heat_coef = ETA * dt / thermal_capacity
 
         surface_potential = self._get_surface_potential(Z)
         thermal_diffusivity_factor = thermal_conductivity * dt / thermal_capacity
@@ -115,7 +115,7 @@ class HeatDiffusionSimulator:
         nabla_y[inds[nx:], inds[nx:] - nx] = -0.5 / dy
         return nabla_x, nabla_y
 
-    def start(self, freq: float = 1.0, n_steps: int = 800) -> None:
+    def start(self, freq: float = 1.0, n_steps: int = 500) -> None:
         omega = 2 * np.pi * freq
         potential = np.zeros(self._nx * self._ny, dtype=float)
         temps = np.zeros((n_steps, self._nx * self._ny), dtype=float)
