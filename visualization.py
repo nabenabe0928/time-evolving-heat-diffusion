@@ -26,4 +26,4 @@ for i, temp_dist in tqdm(enumerate(temp_dists), total=temp_dists.shape[0]):
     file_paths.append(file_path)
     plt.close()
 
-imageio.mimsave("results/dist.gif", [imageio.imread(fp) for fp in file_paths], fps=10)
+imageio.mimsave("results/dist.gif", [imageio.imread(fp) for fp in file_paths], duration=0.05, loop=0)
