@@ -19,7 +19,7 @@ file_paths = []
 for i, temp_dist in tqdm(enumerate(temp_dists), total=temp_dists.shape[0]):
     _, ax = plt.subplots(figsize=(5, 3))
     ax.contourf(X, Y, temp_dist, levels=levels)
-    ax.set_title(f"{1e-2*i:.2f} [s]")
+    ax.set_title(f"{1e-2 * i:.2f} [s]")
     ax.tick_params(labelleft=False, left=False, labelbottom=False, bottom=False)
     file_path = f"results/dist{i:0>3}.png"
     plt.savefig(file_path, bbox_inches="tight")
