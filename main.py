@@ -10,6 +10,8 @@ from tqdm import tqdm
 os.makedirs("results", exist_ok=True)
 MU0 = 4.0 * np.pi * 1.0e-7
 ETA = 2.0e-8
+THERMAL_CONDUCTIVITY_TABLE = {"Au": 316.0, "Hg": 8.6, "Cu": 399, "Fe": 77}
+THERMAL_CAPACITY_TABLE = {"Au": 129.0 * 19320.0, "Hg": 139.0 * 13546.0, "Cu": 385.0 * 8960.0, "Fe": 444.0 * 7874.0}
 
 
 class HeatDiffusionSimulator:
@@ -17,8 +19,8 @@ class HeatDiffusionSimulator:
         self,
         *,
         element: str,
-        nx: int = 50,
-        ny: int = 50,
+        nx: int = 5,
+        ny: int = 5,
         X: float = 0.1,
         Y: float = 0.1,
         Z: float = 0.01,
@@ -26,13 +28,8 @@ class HeatDiffusionSimulator:
         flux_x_bound: float = 0.0,
         flux_y_bound: float = 0.0,
     ) -> None:
-        thermal_conductivity = {"Au": 316.0, "Hg": 8.6, "Cu": 399, "Fe": 77}[element]
-        thermal_capacity = {
-            "Au": 129.0 * 19320.0,
-            "Hg": 139.0 * 13546.0,
-            "Cu": 385.0 * 8960.0,
-            "Fe": 444.0 * 7874.0,
-        }[element]
+        thermal_conductivity = THERMAL_CONDUCTIVITY_TABLE[element]
+        thermal_capacity = THERMAL_CAPACITY_TABLE[element]
         self._element = element
         self._nx = nx
         self._ny = ny
