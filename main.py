@@ -17,8 +17,6 @@ class HeatDiffusionSimulator:
         self,
         *,
         element: str,
-        freq: float = 1.0,
-        n_steps: int = 20,
         nx: int = 5,
         ny: int = 5,
         X: float = 0.1,
@@ -36,8 +34,6 @@ class HeatDiffusionSimulator:
             "Fe": 444.0 * 7874.0,
         }[element]
         self._element = element
-        self._freq = freq
-        self._n_steps = n_steps
         self._nx = nx
         self._ny = ny
         self._dx = float(X / (nx + 1))
@@ -47,12 +43,10 @@ class HeatDiffusionSimulator:
         self._joule_heat_coef = ETA * dt / thermal_capacity
 
         surface_potential = self._get_surface_potential(Z)
-        delta = self._build_delta_operator()
-        I = np.identity(nx * ny)
-        self._potential_step = np.linalg.inv((MU0 * I - surface_potential) / dt - ETA * delta)
-        self._potential_mass = (MU0 * I - surface_potential) / dt
         thermal_diffusivity_factor = thermal_conductivity * dt / thermal_capacity
-        self._temp_step = np.linalg.inv(I - thermal_diffusivity_factor * delta)
+        delta = self._build_delta_operator()
+        self._potential_step, self._potential_mass = self._get_potential_matrices(Z)
+        self._temp_step = np.linalg.inv(np.eye(self._nx * self._ny, dtype=float) - thermal_diffusivity_factor * delta)
         self._temp_boundary_source = self._get_temp_boundary_source(
             thermal_diffusivity_factor, flux_x_bound, flux_y_bound
         )
@@ -78,6 +72,14 @@ class HeatDiffusionSimulator:
         coef = MU0 * Z * dx * dy / 4.0 / np.pi
         surface_potential = coef / np.sqrt((xs - xs[:, None]) ** 2 + (ys - ys[:, None]) ** 2 + (Z / 2.0) ** 2) ** 3
         return surface_potential
+
+    def _get_potential_matrices(self, Z: float) -> tuple[np.ndarray, np.ndarray]:
+        surface_potential = self._get_surface_potential(Z)
+        delta = self._build_delta_operator()
+        mu0_I = MU0 * np.eye(self._nx * self._ny, dtype=float)
+        potential_mass = (mu0_I - surface_potential) / self._dt
+        potential_step = np.linalg.inv(potential_mass - ETA * delta)
+        return potential_step, potential_mass
 
     def _build_delta_operator(self) -> np.ndarray:
         """
@@ -116,18 +118,20 @@ class HeatDiffusionSimulator:
         nabla_y[inds[nx:], inds[nx:] - nx] = -0.5 / dy
         return nabla_x, nabla_y
 
-    def main(self) -> None:
-        omega = 2 * np.pi * self._freq
+    def main(self, freq: float = 1.0, n_steps: int = 20) -> None:
+        omega = 2 * np.pi * freq
         potential = np.zeros(self._nx * self._ny, dtype=float)
-        temps = np.zeros((self._n_steps, self._nx * self._ny), dtype=float)
+        temps = np.zeros((n_steps, self._nx * self._ny), dtype=float)
 
-        for t in tqdm(range(self._n_steps)):
+        for t in tqdm(range(n_steps)):
             potential = self._potential_step @ (self._potential_mass @ potential - omega * np.sin(omega * t * self._dt))
             pot_dy = self._nabla_y @ potential
             pot_dx = -self._nabla_x @ potential
             joule_heat_squared = pot_dx @ pot_dx + pot_dy @ pot_dy
             prev = max(0, t - 1)
-            temps[t] = self._temp_step @ (temps[prev] + self._temp_boundary_source + self._joule_heat_coef * joule_heat_squared)
+            temps[t] = self._temp_step @ (
+                temps[prev] + self._temp_boundary_source + self._joule_heat_coef * joule_heat_squared
+            )
 
         with open(f"results/temperature_{self._element}.json", "w") as f:
             json.dump(temps.tolist(), f)
