@@ -17,8 +17,8 @@ class HeatDiffusionSimulator:
         self,
         *,
         element: str,
-        nx: int = 5,
-        ny: int = 5,
+        nx: int = 50,
+        ny: int = 50,
         X: float = 0.1,
         Y: float = 0.1,
         Z: float = 0.01,
@@ -118,7 +118,7 @@ class HeatDiffusionSimulator:
         nabla_y[inds[nx:], inds[nx:] - nx] = -0.5 / dy
         return nabla_x, nabla_y
 
-    def main(self, freq: float = 1.0, n_steps: int = 20) -> None:
+    def start(self, freq: float = 1.0, n_steps: int = 50) -> None:
         omega = 2 * np.pi * freq
         potential = np.zeros(self._nx * self._ny, dtype=float)
         temps = np.zeros((n_steps, self._nx * self._ny), dtype=float)
@@ -138,4 +138,4 @@ class HeatDiffusionSimulator:
 
 
 if __name__ == "__main__":
-    HeatDiffusionSimulator(element="Au").main()
+    HeatDiffusionSimulator(element="Au").start()
