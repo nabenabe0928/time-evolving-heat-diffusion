@@ -74,9 +74,7 @@ class HeatDiffusionSimulator:
         xs = np.tile(np.arange(W), H) * dx
         ys = np.tile(np.arange(H)[:, None], (1, W)).ravel() * dy
         coef = MU0 * Z * dx * dy / 4.0 / np.pi
-        surface_potential = (
-            coef / np.sqrt((xs - xs[:, None]) ** 2 + (ys - ys[:, None]) ** 2 + (Z / 2.0) ** 2) ** 3
-        )
+        surface_potential = coef / np.sqrt((xs - xs[:, None]) ** 2 + (ys - ys[:, None]) ** 2 + (Z / 2.0) ** 2) ** 3
         return surface_potential
 
     def _build_delta_operator(self) -> np.ndarray:
@@ -122,16 +120,12 @@ class HeatDiffusionSimulator:
         temps = np.zeros((self._n_steps, self._W * self._H), dtype=float)
 
         for t in tqdm(range(self._n_steps)):
-            potential = self._potential_step @ (
-                self._potential_mass @ potential - omega * np.sin(omega * t * self._dt)
-            )
+            potential = self._potential_step @ (self._potential_mass @ potential - omega * np.sin(omega * t * self._dt))
             pot_dy = self._nabla_y @ potential
             pot_dx = -self._nabla_x @ potential
             joule_head_squared = pot_dx @ pot_dx + pot_dy @ pot_dy
             prev = max(0, t - 1)
-            temps[t] = self._temp_step @ (
-                temps[prev] + self._temp_boundary_source + self._coef2 * joule_head_squared
-            )
+            temps[t] = self._temp_step @ (temps[prev] + self._temp_boundary_source + self._coef2 * joule_head_squared)
 
         with open(f"results/temperature_{self._element}.json", "w") as f:
             json.dump(temps.tolist(), f)
